@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Circle as KonvaCircle } from "react-konva";
+import { Stage, Layer, Line, Rect, Circle as KonvaCircle, Text, Group } from "react-konva";
 import { KonvaEventObject } from "konva/lib/Node";
 import { v4 as uuidv4 } from "uuid";
 import { useSocket } from "@/hooks/useSocket";
@@ -14,6 +14,7 @@ import {
     Redo,
     Minus,
     Plus,
+    StickyNote,
 } from "lucide-react";
 
 type Element =
@@ -43,6 +44,14 @@ type Element =
         radius: number;
         stroke: string;
         strokeWidth: number;
+    }
+    | {
+        id: string;
+        type: "sticky";
+        x: number;
+        y: number;
+        text: string;
+        color: string;
     };
 
 const Whiteboard = () => {
@@ -92,6 +101,36 @@ const Whiteboard = () => {
     const handleMouseDown = (
         e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>
     ) => {
+        if (tool === "sticky") {
+            const pos = e.target.getStage()?.getPointerPosition();
+            if (!pos) return;
+
+            const text = window.prompt("메모 내용을 입력하세요:");
+            if (!text) return;
+
+            const id = uuidv4();
+            const newElement: Element = {
+                id,
+                type: "sticky",
+                x: pos.x,
+                y: pos.y,
+                text,
+                color: "#ffeb3b", // Default yellow sticky note color
+            };
+
+            const newElements = [...elements, newElement];
+            setElements(newElements);
+            socket?.emit("draw", newElement);
+
+            // Add to history immediately for sticky notes
+            const newHistory = history.slice(0, historyStep + 1);
+            newHistory.push(newElements);
+            setHistory(newHistory);
+            setHistoryStep(newHistory.length - 1);
+
+            return;
+        }
+
         isDrawing.current = true;
         const pos = e.target.getStage()?.getPointerPosition();
         if (!pos) return;
@@ -216,43 +255,53 @@ const Whiteboard = () => {
                 <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
                     <button
                         className={`p-2 rounded-lg transition-all ${tool === "pen"
-                                ? "bg-white text-blue-600 shadow-sm"
-                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                            ? "bg-white text-blue-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("pen")}
-                        title="Pen"
+                        title="펜"
                     >
                         <Pencil size={20} />
                     </button>
                     <button
                         className={`p-2 rounded-lg transition-all ${tool === "eraser"
-                                ? "bg-white text-blue-600 shadow-sm"
-                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                            ? "bg-white text-blue-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("eraser")}
-                        title="Eraser"
+                        title="지우개"
                     >
                         <Eraser size={20} />
                     </button>
                     <button
                         className={`p-2 rounded-lg transition-all ${tool === "rect"
-                                ? "bg-white text-blue-600 shadow-sm"
-                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                            ? "bg-white text-blue-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("rect")}
-                        title="Rectangle"
+                        title="사각형"
                     >
                         <Square size={20} />
                     </button>
                     <button
                         className={`p-2 rounded-lg transition-all ${tool === "circle"
-                                ? "bg-white text-blue-600 shadow-sm"
-                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                            ? "bg-white text-blue-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("circle")}
-                        title="Circle"
+                        title="원"
                     >
                         <Circle size={20} />
+                    </button>
+                    <button
+                        className={`p-2 rounded-lg transition-all ${tool === "sticky"
+                            ? "bg-white text-blue-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                            }`}
+                        onClick={() => setTool("sticky")}
+                        title="메모 (포스트잇)"
+                    >
+                        <StickyNote size={20} />
                     </button>
                 </div>
 
@@ -266,9 +315,10 @@ const Whiteboard = () => {
                             value={color}
                             onChange={(e) => setColor(e.target.value)}
                             className="w-8 h-8 rounded-full cursor-pointer border-2 border-gray-200 p-0.5 overflow-hidden"
+                            title="색상 선택"
                         />
                     </div>
-                    <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 rounded-lg">
+                    <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 rounded-lg" title="선 두께">
                         <Minus size={14} className="text-gray-500" />
                         <input
                             type="range"
@@ -290,7 +340,7 @@ const Whiteboard = () => {
                         className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
                         onClick={handleUndo}
                         disabled={historyStep === 0}
-                        title="Undo"
+                        title="실행 취소"
                     >
                         <Undo size={20} />
                     </button>
@@ -298,7 +348,7 @@ const Whiteboard = () => {
                         className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
                         onClick={handleRedo}
                         disabled={historyStep === history.length - 1}
-                        title="Redo"
+                        title="다시 실행"
                     >
                         <Redo size={20} />
                     </button>
@@ -354,6 +404,29 @@ const Whiteboard = () => {
                                     stroke={el.stroke}
                                     strokeWidth={el.strokeWidth}
                                 />
+                            );
+                        } else if (el.type === "sticky") {
+                            return (
+                                <Group key={el.id} x={el.x} y={el.y} draggable>
+                                    <Rect
+                                        width={150}
+                                        height={150}
+                                        fill={el.color}
+                                        shadowColor="black"
+                                        shadowBlur={10}
+                                        shadowOpacity={0.1}
+                                        cornerRadius={5}
+                                    />
+                                    <Text
+                                        x={10}
+                                        y={10}
+                                        width={130}
+                                        text={el.text}
+                                        fontSize={16}
+                                        fontFamily="sans-serif"
+                                        fill="#333"
+                                    />
+                                </Group>
                             );
                         }
                         return null;
