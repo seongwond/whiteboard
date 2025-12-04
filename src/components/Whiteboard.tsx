@@ -123,6 +123,12 @@ const Whiteboard = () => {
     const [newMessage, setNewMessage] = useState("");
     const [nickname, setNickname] = useState("");
     const [isNicknameSet, setIsNicknameSet] = useState(false);
+    const chatEndRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll to bottom of chat
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chatMessages]);
 
     useEffect(() => {
         if (!socket) return;
@@ -174,7 +180,13 @@ const Whiteboard = () => {
 
         socket.on("chat-message", (message: ChatMessage) => {
             console.log("New chat message:", message);
-            setChatMessages((prev) => [...prev, message]);
+            setChatMessages((prev) => {
+                // Deduplicate messages (prevent double rendering if optimistic update already added it)
+                if (prev.some(msg => msg.id === message.id)) {
+                    return prev;
+                }
+                return [...prev, message];
+            });
         });
 
         return () => {
@@ -233,7 +245,7 @@ const Whiteboard = () => {
                 type: "sticky",
                 x: pos.x,
                 y: pos.y,
-                text: "New Note",
+                text: "새 메모", // Localized
                 color: "#ffeb3b", // Default yellow
             };
             isDrawing.current = false; // Sticky note is placed instantly
@@ -395,6 +407,10 @@ const Whiteboard = () => {
                 timestamp: Date.now(),
                 color: users.find(u => u.id === socket?.id)?.color || "#000",
             };
+
+            // Optimistic update: Add message immediately to local state
+            setChatMessages((prev) => [...prev, message]);
+
             socket.emit("chat-message", message);
             setNewMessage("");
         }
@@ -404,10 +420,10 @@ const Whiteboard = () => {
         return (
             <div className="flex items-center justify-center h-screen bg-gray-100">
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-96">
-                    <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">Join Whiteboard</h2>
+                    <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">화이트보드 참여</h2>
                     <input
                         type="text"
-                        placeholder="Enter your nickname"
+                        placeholder="닉네임을 입력하세요"
                         className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         value={nickname}
                         onChange={(e) => setNickname(e.target.value)}
@@ -417,7 +433,7 @@ const Whiteboard = () => {
                         onClick={handleJoin}
                         className="w-full bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                     >
-                        Join
+                        참여하기
                     </button>
                 </div>
             </div>
@@ -432,7 +448,7 @@ const Whiteboard = () => {
                 <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border border-white/20 pointer-events-auto flex-shrink-0 max-h-[40%] overflow-y-auto">
                     <div className="flex items-center gap-2 mb-3">
                         <Users className="w-5 h-5 text-gray-700" />
-                        <h3 className="font-bold text-gray-800">Users ({users.length})</h3>
+                        <h3 className="font-bold text-gray-800">사용자 ({users.length})</h3>
                     </div>
                     <ul className="space-y-2">
                         {users.map((user) => (
@@ -442,7 +458,7 @@ const Whiteboard = () => {
                                     style={{ backgroundColor: user.color }}
                                 />
                                 <span className="text-sm font-medium text-gray-700 truncate">{user.nickname}</span>
-                                {user.id === socket?.id && <span className="text-xs text-gray-500">(You)</span>}
+                                {user.id === socket?.id && <span className="text-xs text-gray-500">(나)</span>}
                             </li>
                         ))}
                     </ul>
@@ -452,7 +468,7 @@ const Whiteboard = () => {
                 <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border border-white/20 pointer-events-auto flex-1 flex flex-col min-h-0">
                     <div className="flex items-center gap-2 mb-3">
                         <MessageCircle className="w-5 h-5 text-gray-700" />
-                        <h3 className="font-bold text-gray-800">Chat</h3>
+                        <h3 className="font-bold text-gray-800">채팅</h3>
                     </div>
                     <div className="flex-1 overflow-y-auto mb-3 space-y-2 pr-1">
                         {chatMessages.map((msg) => (
@@ -464,11 +480,12 @@ const Whiteboard = () => {
                                 <p className="text-sm text-gray-800 bg-white/50 p-2 rounded-lg mt-1 break-words">{msg.text}</p>
                             </div>
                         ))}
+                        <div ref={chatEndRef} />
                     </div>
                     <div className="flex gap-2">
                         <input
                             type="text"
-                            placeholder="Type a message..."
+                            placeholder="메시지를 입력하세요..."
                             className="flex-1 p-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90"
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
@@ -490,21 +507,21 @@ const Whiteboard = () => {
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "select" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("select")}
-                        title="Select & Move"
+                        title="선택 및 이동"
                     >
                         <MousePointer2 className="w-5 h-5" />
                     </button>
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "pencil" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("pencil")}
-                        title="Pencil"
+                        title="펜"
                     >
                         <Pencil className="w-5 h-5" />
                     </button>
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "eraser" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("eraser")}
-                        title="Eraser"
+                        title="지우개"
                     >
                         <Eraser className="w-5 h-5" />
                     </button>
@@ -514,25 +531,25 @@ const Whiteboard = () => {
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "rect" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("rect")}
-                        title="Rectangle"
+                        title="사각형"
                     >
                         <Square className="w-5 h-5" />
                     </button>
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "circle" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("circle")}
-                        title="Circle"
+                        title="원"
                     >
                         <Circle className="w-5 h-5" />
                     </button>
                     <button
                         className={`p-2 rounded-xl transition-all ${tool === "sticky" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("sticky")}
-                        title="Sticky Note"
+                        title="스티커 메모"
                     >
                         <StickyNote className="w-5 h-5" />
                     </button>
-                    <label className="p-2 rounded-xl hover:bg-gray-100 text-gray-600 cursor-pointer transition-all" title="Upload Image">
+                    <label className="p-2 rounded-xl hover:bg-gray-100 text-gray-600 cursor-pointer transition-all" title="이미지 업로드">
                         <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                         <ImageIcon className="w-5 h-5" />
                     </label>
@@ -544,7 +561,7 @@ const Whiteboard = () => {
                         value={color}
                         onChange={(e) => setColor(e.target.value)}
                         className="w-8 h-8 rounded-lg cursor-pointer border-none bg-transparent"
-                        title="Color Picker"
+                        title="색상 선택"
                     />
                     <div className="flex items-center gap-1 mx-2">
                         <button onClick={() => setLineWidth(Math.max(1, lineWidth - 1))} className="p-1 hover:bg-gray-100 rounded-lg">
@@ -558,10 +575,10 @@ const Whiteboard = () => {
                 </div>
 
                 <div className="flex gap-1 border-l border-gray-300 pl-2">
-                    <button onClick={undo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="Undo">
+                    <button onClick={undo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="실행 취소">
                         <Undo className="w-5 h-5" />
                     </button>
-                    <button onClick={redo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="Redo">
+                    <button onClick={redo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="다시 실행">
                         <Redo className="w-5 h-5" />
                     </button>
                 </div>
