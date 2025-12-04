@@ -1,15 +1,49 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Circle } from "react-konva";
+import { Stage, Layer, Line, Rect, Circle as KonvaCircle } from "react-konva";
 import { KonvaEventObject } from "konva/lib/Node";
 import { v4 as uuidv4 } from "uuid";
 import { useSocket } from "@/hooks/useSocket";
+import {
+    Pencil,
+    Eraser,
+    Square,
+    Circle,
+    Undo,
+    Redo,
+    Minus,
+    Plus,
+} from "lucide-react";
 
 type Element =
-    | { id: string; type: "line"; tool: string; points: number[]; stroke: string; strokeWidth: number }
-    | { id: string; type: "rect"; x: number; y: number; width: number; height: number; stroke: string; strokeWidth: number }
-    | { id: string; type: "circle"; x: number; y: number; radius: number; stroke: string; strokeWidth: number };
+    | {
+        id: string;
+        type: "line";
+        tool: string;
+        points: number[];
+        stroke: string;
+        strokeWidth: number;
+    }
+    | {
+        id: string;
+        type: "rect";
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        stroke: string;
+        strokeWidth: number;
+    }
+    | {
+        id: string;
+        type: "circle";
+        x: number;
+        y: number;
+        radius: number;
+        stroke: string;
+        strokeWidth: number;
+    };
 
 const Whiteboard = () => {
     const [elements, setElements] = useState<Element[]>([]);
@@ -55,7 +89,9 @@ const Whiteboard = () => {
         };
     }, [socket]);
 
-    const handleMouseDown = (e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => {
+    const handleMouseDown = (
+        e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>
+    ) => {
         isDrawing.current = true;
         const pos = e.target.getStage()?.getPointerPosition();
         if (!pos) return;
@@ -102,7 +138,9 @@ const Whiteboard = () => {
         }
     };
 
-    const handleMouseMove = (e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => {
+    const handleMouseMove = (
+        e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>
+    ) => {
         if (!isDrawing.current) return;
         const stage = e.target.getStage();
         const point = stage?.getPointerPosition();
@@ -157,8 +195,6 @@ const Whiteboard = () => {
         const newStep = historyStep - 1;
         setHistoryStep(newStep);
         setElements(history[newStep]);
-        // Note: Undo/Redo in collaborative env is complex, this is local view only for now
-        // Ideally we should emit 'undo' event to server
     };
 
     const handleRedo = () => {
@@ -173,71 +209,102 @@ const Whiteboard = () => {
     }
 
     return (
-        <div className="relative w-full h-screen bg-gray-100">
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white p-2 rounded-lg shadow-md z-10 flex gap-4 items-center">
-                <div className="flex gap-2">
+        <div className="relative w-full h-screen bg-gray-100 overflow-hidden">
+            {/* Toolbar */}
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white p-3 rounded-2xl shadow-xl z-10 flex gap-4 items-center border border-gray-100">
+                {/* Tools */}
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
                     <button
-                        className={`p-2 rounded ${tool === "pen" ? "bg-blue-500 text-white" : "bg-gray-200"
+                        className={`p-2 rounded-lg transition-all ${tool === "pen"
+                                ? "bg-white text-blue-600 shadow-sm"
+                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("pen")}
+                        title="Pen"
                     >
-                        Pen
+                        <Pencil size={20} />
                     </button>
                     <button
-                        className={`p-2 rounded ${tool === "eraser" ? "bg-blue-500 text-white" : "bg-gray-200"
+                        className={`p-2 rounded-lg transition-all ${tool === "eraser"
+                                ? "bg-white text-blue-600 shadow-sm"
+                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("eraser")}
+                        title="Eraser"
                     >
-                        Eraser
+                        <Eraser size={20} />
                     </button>
                     <button
-                        className={`p-2 rounded ${tool === "rect" ? "bg-blue-500 text-white" : "bg-gray-200"
+                        className={`p-2 rounded-lg transition-all ${tool === "rect"
+                                ? "bg-white text-blue-600 shadow-sm"
+                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("rect")}
+                        title="Rectangle"
                     >
-                        Rect
+                        <Square size={20} />
                     </button>
                     <button
-                        className={`p-2 rounded ${tool === "circle" ? "bg-blue-500 text-white" : "bg-gray-200"
+                        className={`p-2 rounded-lg transition-all ${tool === "circle"
+                                ? "bg-white text-blue-600 shadow-sm"
+                                : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                             }`}
                         onClick={() => setTool("circle")}
+                        title="Circle"
                     >
-                        Circle
+                        <Circle size={20} />
                     </button>
                 </div>
-                <div className="flex items-center gap-2 border-l pl-4 border-r pr-4">
-                    <input
-                        type="color"
-                        value={color}
-                        onChange={(e) => setColor(e.target.value)}
-                        className="w-8 h-8 rounded cursor-pointer border-none"
-                    />
-                    <input
-                        type="range"
-                        min="1"
-                        max="20"
-                        value={strokeWidth}
-                        onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
-                        className="w-24 cursor-pointer"
-                    />
+
+                <div className="w-px h-8 bg-gray-200" />
+
+                {/* Style Controls */}
+                <div className="flex items-center gap-3">
+                    <div className="relative group">
+                        <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => setColor(e.target.value)}
+                            className="w-8 h-8 rounded-full cursor-pointer border-2 border-gray-200 p-0.5 overflow-hidden"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 rounded-lg">
+                        <Minus size={14} className="text-gray-500" />
+                        <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            value={strokeWidth}
+                            onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
+                            className="w-20 cursor-pointer accent-blue-600"
+                        />
+                        <Plus size={14} className="text-gray-500" />
+                    </div>
                 </div>
-                <div className="flex gap-2">
+
+                <div className="w-px h-8 bg-gray-200" />
+
+                {/* History Controls */}
+                <div className="flex gap-1">
                     <button
-                        className="p-2 rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+                        className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
                         onClick={handleUndo}
                         disabled={historyStep === 0}
+                        title="Undo"
                     >
-                        Undo
+                        <Undo size={20} />
                     </button>
                     <button
-                        className="p-2 rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+                        className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
                         onClick={handleRedo}
                         disabled={historyStep === history.length - 1}
+                        title="Redo"
                     >
-                        Redo
+                        <Redo size={20} />
                     </button>
                 </div>
             </div>
+
             <Stage
                 width={stageSize.width}
                 height={stageSize.height}
@@ -279,7 +346,7 @@ const Whiteboard = () => {
                             );
                         } else if (el.type === "circle") {
                             return (
-                                <Circle
+                                <KonvaCircle
                                     key={el.id}
                                     x={el.x}
                                     y={el.y}
