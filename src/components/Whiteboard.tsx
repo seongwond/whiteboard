@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Circle as KonvaCircle, Text, Group, Path } from "react-konva";
+import { Stage, Layer, Line, Rect, Circle as KonvaCircle, Text, Group, Path, Image as KonvaImage } from "react-konva";
 import { KonvaEventObject } from "konva/lib/Node";
 import { v4 as uuidv4 } from "uuid";
 import { useSocket } from "@/hooks/useSocket";
+import useImage from "use-image";
 import {
     Pencil,
     Eraser,
@@ -16,6 +17,10 @@ import {
     Plus,
     StickyNote,
     MousePointer2,
+    Users,
+    MessageCircle,
+    Send,
+    Image as ImageIcon,
 } from "lucide-react";
 
 type Element =
@@ -53,6 +58,15 @@ type Element =
         y: number;
         text: string;
         color: string;
+    }
+    | {
+        id: string;
+        type: "image";
+        x: number;
+        y: number;
+        src: string;
+        width: number;
+        height: number;
     };
 
 type Cursor = {
@@ -60,157 +74,137 @@ type Cursor = {
     x: number;
     y: number;
     color: string;
+    nickname: string;
+};
+
+type User = {
+    id: string;
+    color: string;
+    nickname: string;
+};
+
+type ChatMessage = {
+    id: string;
+    sender: string;
+    text: string;
+    timestamp: number;
+    color: string;
 };
 
 // Generate a random color for the cursor
 const getRandomColor = () => {
-    const colors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF", "#FF33A8", "#33FFF5"];
+    const colors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF", "#FF33A8", "#33FFF5", "#FFC300", "#DAF7A6"];
     return colors[Math.floor(Math.random() * colors.length)];
+};
+
+const URLImage = ({ image }: { image: Element & { type: "image" } }) => {
+    const [img] = useImage(image.src);
+    return (
+        <KonvaImage
+            image={img}
+            width={image.width}
+            height={image.height}
+        />
+    );
 };
 
 const Whiteboard = () => {
     const [elements, setElements] = useState<Element[]>([]);
-    const [history, setHistory] = useState<Element[][]>([[]]);
-    const [historyStep, setHistoryStep] = useState(0);
-    const isDrawing = useRef(false);
-    const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-    const [tool, setTool] = useState("pen");
-    const [color, setColor] = useState("#df4b26");
-    const [strokeWidth, setStrokeWidth] = useState(5);
+    const [history, setHistory] = useState<Element[][]>([]);
+    const [future, setFuture] = useState<Element[][]>([]);
+    const [tool, setTool] = useState<string>("pencil");
+    const [color, setColor] = useState<string>("#000000");
+    const [lineWidth, setLineWidth] = useState<number>(5);
     const [cursors, setCursors] = useState<Cursor[]>([]);
-    const [myCursorColor] = useState(getRandomColor());
     const socket = useSocket();
-
-    useEffect(() => {
-        setStageSize({ width: window.innerWidth, height: window.innerHeight });
-
-        const handleResize = () => {
-            setStageSize({ width: window.innerWidth, height: window.innerHeight });
-        };
-
-        window.addEventListener("resize", handleResize);
-        return () => window.removeEventListener("resize", handleResize);
-    }, []);
+    const isDrawing = useRef(false);
+    const [users, setUsers] = useState<User[]>([]);
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const [newMessage, setNewMessage] = useState("");
+    const [nickname, setNickname] = useState("");
+    const [isNicknameSet, setIsNicknameSet] = useState(false);
 
     useEffect(() => {
         if (!socket) return;
 
-        socket.on("draw", (data: Element) => {
-            setElements((prevElements) => {
-                const index = prevElements.findIndex((el) => el.id === data.id);
-                let newElements;
+        socket.on("connect", () => {
+            console.log("Connected to server");
+        });
+
+        socket.on("init-state", (serverElements: Element[]) => {
+            setElements(serverElements);
+        });
+
+        socket.on("update-element", (element: Element) => {
+            setElements((prev) => {
+                const index = prev.findIndex((el) => el.id === element.id);
                 if (index !== -1) {
-                    newElements = [...prevElements];
-                    newElements[index] = data;
+                    const newElements = [...prev];
+                    newElements[index] = element;
+                    return newElements;
                 } else {
-                    newElements = [...prevElements, data];
+                    return [...prev, element];
                 }
-                return newElements;
             });
         });
 
-        socket.on("delete", (id: string) => {
-            setElements((prevElements) => prevElements.filter((el) => el.id !== id));
+        socket.on("clear-board", () => {
+            setElements([]);
+            setHistory([]);
+            setFuture([]);
         });
 
         socket.on("cursor-move", (data: Cursor) => {
-            setCursors((prevCursors) => {
-                const index = prevCursors.findIndex((c) => c.id === data.id);
+            setCursors((prev) => {
+                const index = prev.findIndex((c) => c.id === data.id);
                 if (index !== -1) {
-                    const newCursors = [...prevCursors];
+                    const newCursors = [...prev];
                     newCursors[index] = data;
                     return newCursors;
                 } else {
-                    return [...prevCursors, data];
+                    return [...prev, data];
                 }
             });
         });
 
+        socket.on("update-user-list", (userList: User[]) => {
+            console.log("User list updated:", userList);
+            setUsers(userList);
+        });
+
+        socket.on("chat-message", (message: ChatMessage) => {
+            console.log("New chat message:", message);
+            setChatMessages((prev) => [...prev, message]);
+        });
+
         return () => {
-            socket.off("draw");
-            socket.off("delete");
+            socket.off("connect");
+            socket.off("init-state");
+            socket.off("update-element");
+            socket.off("clear-board");
             socket.off("cursor-move");
+            socket.off("update-user-list");
+            socket.off("chat-message");
         };
     }, [socket]);
 
-    const handleMouseDown = (
-        e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>
-    ) => {
-        const stage = e.target.getStage();
-        const pos = stage?.getPointerPosition();
+    const handleMouseDown = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+        if (tool === "select") return;
+        isDrawing.current = true;
+        const pos = e.target.getStage()?.getPointerPosition();
         if (!pos) return;
 
-        // Object Eraser Logic
-        if (tool === "eraser") {
-            isDrawing.current = true; // Allow dragging to erase multiple
-            const shape = stage?.getIntersection(pos);
-            if (shape && shape !== stage) {
-                let targetId = shape.id();
-                if (!targetId && shape.parent) {
-                    targetId = shape.parent.id();
-                }
-
-                if (targetId) {
-                    const elementExists = elements.some(el => el.id === targetId);
-                    if (elementExists) {
-                        const newElements = elements.filter(el => el.id !== targetId);
-                        setElements(newElements);
-                        socket?.emit("delete", targetId);
-
-                        const newHistory = history.slice(0, historyStep + 1);
-                        newHistory.push(newElements);
-                        setHistory(newHistory);
-                        setHistoryStep(newHistory.length - 1);
-                    }
-                }
-            }
-            return;
-        }
-
-        const clickedOnEmpty = e.target === stage;
-        if (!clickedOnEmpty && tool !== "eraser") return;
-
-        if (tool === "select") return;
-
-        if (tool === "sticky") {
-            const text = window.prompt("메모 내용을 입력하세요:");
-            if (!text) return;
-
-            const id = uuidv4();
-            const newElement: Element = {
-                id,
-                type: "sticky",
-                x: pos.x,
-                y: pos.y,
-                text,
-                color: "#ffeb3b",
-            };
-
-            const newElements = [...elements, newElement];
-            setElements(newElements);
-            socket?.emit("draw", newElement);
-
-            const newHistory = history.slice(0, historyStep + 1);
-            newHistory.push(newElements);
-            setHistory(newHistory);
-            setHistoryStep(newHistory.length - 1);
-
-            setTool("select");
-            return;
-        }
-
-        isDrawing.current = true;
         const id = uuidv4();
         let newElement: Element | null = null;
 
-        if (tool === "pen") {
+        if (tool === "pencil" || tool === "eraser") {
             newElement = {
                 id,
                 type: "line",
                 tool,
                 points: [pos.x, pos.y],
-                stroke: color,
-                strokeWidth: strokeWidth,
+                stroke: tool === "eraser" ? "#ffffff" : color,
+                strokeWidth: tool === "eraser" ? 20 : lineWidth,
             };
         } else if (tool === "rect") {
             newElement = {
@@ -221,7 +215,7 @@ const Whiteboard = () => {
                 width: 0,
                 height: 0,
                 stroke: color,
-                strokeWidth,
+                strokeWidth: lineWidth,
             };
         } else if (tool === "circle") {
             newElement = {
@@ -231,264 +225,354 @@ const Whiteboard = () => {
                 y: pos.y,
                 radius: 0,
                 stroke: color,
-                strokeWidth,
+                strokeWidth: lineWidth,
             };
+        } else if (tool === "sticky") {
+            newElement = {
+                id,
+                type: "sticky",
+                x: pos.x,
+                y: pos.y,
+                text: "New Note",
+                color: "#ffeb3b", // Default yellow
+            };
+            isDrawing.current = false; // Sticky note is placed instantly
         }
 
         if (newElement) {
-            const newElements = [...elements, newElement];
-            setElements(newElements);
-            socket?.emit("draw", newElement);
+            setElements((prev) => [...prev, newElement!]);
+            if (socket) {
+                socket.emit("draw", newElement);
+            }
         }
     };
 
-    const handleMouseMove = (
-        e: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>
-    ) => {
+    const handleMouseMove = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
         const stage = e.target.getStage();
-        const point = stage?.getPointerPosition();
-        if (!point) return;
+        const pos = stage?.getPointerPosition();
+        if (!pos || !socket) return;
 
-        // Broadcast cursor position
-        if (socket) {
+        // Emit cursor position
+        if (isNicknameSet) {
             socket.emit("cursor-move", {
                 id: socket.id,
-                x: point.x,
-                y: point.y,
-                color: myCursorColor,
+                x: pos.x,
+                y: pos.y,
+                color: users.find(u => u.id === socket.id)?.color || "#000",
+                nickname: nickname
             });
         }
 
         if (!isDrawing.current) return;
 
-        // Object Eraser Drag Logic
-        if (tool === "eraser") {
-            const shape = stage?.getIntersection(point);
-            if (shape && shape !== stage) {
-                let targetId = shape.id();
-                if (!targetId && shape.parent) {
-                    targetId = shape.parent.id();
-                }
-
-                if (targetId) {
-                    const elementExists = elements.some(el => el.id === targetId);
-                    if (elementExists) {
-                        const newElements = elements.filter(el => el.id !== targetId);
-                        setElements(newElements);
-                        socket?.emit("delete", targetId);
-                    }
-                }
-            }
-            return;
-        }
-
         const index = elements.length - 1;
-        const lastElement = elements[index];
-        if (!lastElement) return;
+        const element = elements[index];
 
-        let updatedElement: Element | null = null;
-
-        if (lastElement.type === "line") {
-            updatedElement = {
-                ...lastElement,
-                points: lastElement.points.concat([point.x, point.y]),
+        if (element.type === "line") {
+            const newPoints = [...element.points, pos.x, pos.y];
+            const newElement = { ...element, points: newPoints };
+            setElements((prev) => {
+                const copy = [...prev];
+                copy[index] = newElement;
+                return copy;
+            });
+            socket.emit("draw", newElement);
+        } else if (element.type === "rect") {
+            const newElement = {
+                ...element,
+                width: pos.x - element.x,
+                height: pos.y - element.y,
             };
-        } else if (lastElement.type === "rect") {
-            updatedElement = {
-                ...lastElement,
-                width: point.x - lastElement.x,
-                height: point.y - lastElement.y,
-            };
-        } else if (lastElement.type === "circle") {
-            const dx = point.x - lastElement.x;
-            const dy = point.y - lastElement.y;
-            const radius = Math.sqrt(dx * dx + dy * dy);
-            updatedElement = {
-                ...lastElement,
-                radius,
-            };
-        }
-
-        if (updatedElement) {
-            const newElements = [...elements];
-            newElements[index] = updatedElement;
-            setElements(newElements);
-            socket?.emit("draw", updatedElement);
+            setElements((prev) => {
+                const copy = [...prev];
+                copy[index] = newElement;
+                return copy;
+            });
+            socket.emit("draw", newElement);
+        } else if (element.type === "circle") {
+            const radius = Math.sqrt(
+                Math.pow(pos.x - element.x, 2) + Math.pow(pos.y - element.y, 2)
+            );
+            const newElement = { ...element, radius };
+            setElements((prev) => {
+                const copy = [...prev];
+                copy[index] = newElement;
+                return copy;
+            });
+            socket.emit("draw", newElement);
         }
     };
 
     const handleMouseUp = () => {
-        if (isDrawing.current) {
-            isDrawing.current = false;
-            // Add to history
-            const newHistory = history.slice(0, historyStep + 1);
-            newHistory.push(elements);
-            setHistory(newHistory);
-            setHistoryStep(newHistory.length - 1);
-        }
+        isDrawing.current = false;
+        setHistory((prev) => [...prev, elements]);
+        setFuture([]);
     };
 
     const handleDragEnd = (e: KonvaEventObject<DragEvent>, id: string) => {
-        const newElements = elements.map((el) => {
-            if (el.id === id) {
-                return {
-                    ...el,
-                    x: e.target.x(),
-                    y: e.target.y(),
-                };
-            }
-            return el;
-        });
-        setElements(newElements);
+        const newX = e.target.x();
+        const newY = e.target.y();
 
-        const updatedElement = newElements.find((el) => el.id === id);
-        if (updatedElement) {
-            socket?.emit("draw", updatedElement);
+        setElements((prev) =>
+            prev.map((el) => {
+                if (el.id === id) {
+                    const updated = { ...el, x: newX, y: newY };
+                    if (socket) socket.emit("draw", updated);
+                    return updated;
+                }
+                return el;
+            })
+        );
+    };
+
+    const undo = () => {
+        if (history.length === 0) return;
+        const previous = history[history.length - 1];
+        setFuture((prev) => [elements, ...prev]);
+        setHistory((prev) => prev.slice(0, -1));
+        setElements(previous);
+        // Ideally sync undo with server, but for now local
+    };
+
+    const redo = () => {
+        if (future.length === 0) return;
+        const next = future[0];
+        setHistory((prev) => [...prev, elements]);
+        setFuture((prev) => prev.slice(1));
+        setElements(next);
+    };
+
+    const clearBoard = () => {
+        setElements([]);
+        setHistory([]);
+        setFuture([]);
+        if (socket) {
+            socket.emit("clear-board");
         }
     };
 
-    const handleUndo = () => {
-        if (historyStep === 0) return;
-        const newStep = historyStep - 1;
-        setHistoryStep(newStep);
-        setElements(history[newStep]);
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.src = reader.result as string;
+                img.onload = () => {
+                    const newElement: Element = {
+                        id: uuidv4(),
+                        type: "image",
+                        x: 100,
+                        y: 100,
+                        src: reader.result as string,
+                        width: img.width > 300 ? 300 : img.width,
+                        height: img.height > 300 ? (300 * img.height) / img.width : img.height,
+                    };
+                    setElements((prev) => [...prev, newElement]);
+                    if (socket) {
+                        socket.emit("draw", newElement);
+                    }
+                };
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
-    const handleRedo = () => {
-        if (historyStep === history.length - 1) return;
-        const newStep = historyStep + 1;
-        setHistoryStep(newStep);
-        setElements(history[newStep]);
+    const handleJoin = () => {
+        if (nickname.trim() && socket) {
+            const color = getRandomColor();
+            socket.emit("join-user", { nickname, color });
+            setIsNicknameSet(true);
+        }
     };
 
-    if (stageSize.width === 0) {
-        return <div className="w-full h-screen bg-gray-100" />;
+    const handleSendMessage = () => {
+        if (newMessage.trim() && socket) {
+            const message: ChatMessage = {
+                id: uuidv4(),
+                sender: nickname,
+                text: newMessage,
+                timestamp: Date.now(),
+                color: users.find(u => u.id === socket?.id)?.color || "#000",
+            };
+            socket.emit("chat-message", message);
+            setNewMessage("");
+        }
+    };
+
+    if (!isNicknameSet) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-gray-100">
+                <div className="bg-white p-8 rounded-2xl shadow-xl w-96">
+                    <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">Join Whiteboard</h2>
+                    <input
+                        type="text"
+                        placeholder="Enter your nickname"
+                        className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+                    />
+                    <button
+                        onClick={handleJoin}
+                        className="w-full bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                        Join
+                    </button>
+                </div>
+            </div>
+        );
     }
 
     return (
         <div className="relative w-full h-screen bg-gray-100 overflow-hidden">
-            {/* Toolbar */}
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white p-3 rounded-2xl shadow-xl z-10 flex gap-4 items-center border border-gray-100">
-                {/* Tools */}
-                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+            {/* Left Sidebar: Users & Chat */}
+            <div className="absolute left-4 top-4 bottom-4 w-72 flex flex-col gap-4 pointer-events-none z-10">
+                {/* User List */}
+                <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border border-white/20 pointer-events-auto flex-shrink-0 max-h-[40%] overflow-y-auto">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Users className="w-5 h-5 text-gray-700" />
+                        <h3 className="font-bold text-gray-800">Users ({users.length})</h3>
+                    </div>
+                    <ul className="space-y-2">
+                        {users.map((user) => (
+                            <li key={user.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/50 transition-colors">
+                                <div
+                                    className="w-3 h-3 rounded-full shadow-sm"
+                                    style={{ backgroundColor: user.color }}
+                                />
+                                <span className="text-sm font-medium text-gray-700 truncate">{user.nickname}</span>
+                                {user.id === socket?.id && <span className="text-xs text-gray-500">(You)</span>}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+
+                {/* Chat */}
+                <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border border-white/20 pointer-events-auto flex-1 flex flex-col min-h-0">
+                    <div className="flex items-center gap-2 mb-3">
+                        <MessageCircle className="w-5 h-5 text-gray-700" />
+                        <h3 className="font-bold text-gray-800">Chat</h3>
+                    </div>
+                    <div className="flex-1 overflow-y-auto mb-3 space-y-2 pr-1">
+                        {chatMessages.map((msg) => (
+                            <div key={msg.id} className="flex flex-col">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-xs font-bold" style={{ color: msg.color }}>{msg.sender}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <p className="text-sm text-gray-800 bg-white/50 p-2 rounded-lg mt-1 break-words">{msg.text}</p>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            placeholder="Type a message..."
+                            className="flex-1 p-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90"
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                        />
+                        <button
+                            onClick={handleSendMessage}
+                            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                        >
+                            <Send className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Top Toolbar */}
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/80 backdrop-blur-md p-2 rounded-2xl shadow-lg border border-white/20 flex gap-2 z-10">
+                <div className="flex gap-1 border-r border-gray-300 pr-2">
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "select"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
+                        className={`p-2 rounded-xl transition-all ${tool === "select" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("select")}
-                        title="선택 (이동)"
+                        title="Select & Move"
                     >
-                        <MousePointer2 size={20} />
+                        <MousePointer2 className="w-5 h-5" />
                     </button>
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "pen"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
-                        onClick={() => setTool("pen")}
-                        title="펜"
+                        className={`p-2 rounded-xl transition-all ${tool === "pencil" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
+                        onClick={() => setTool("pencil")}
+                        title="Pencil"
                     >
-                        <Pencil size={20} />
+                        <Pencil className="w-5 h-5" />
                     </button>
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "eraser"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
+                        className={`p-2 rounded-xl transition-all ${tool === "eraser" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("eraser")}
-                        title="지우개 (객체 삭제)"
+                        title="Eraser"
                     >
-                        <Eraser size={20} />
+                        <Eraser className="w-5 h-5" />
                     </button>
+                </div>
+
+                <div className="flex gap-1 border-r border-gray-300 pr-2 pl-2">
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "rect"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
+                        className={`p-2 rounded-xl transition-all ${tool === "rect" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("rect")}
-                        title="사각형"
+                        title="Rectangle"
                     >
-                        <Square size={20} />
+                        <Square className="w-5 h-5" />
                     </button>
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "circle"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
+                        className={`p-2 rounded-xl transition-all ${tool === "circle" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("circle")}
-                        title="원"
+                        title="Circle"
                     >
-                        <Circle size={20} />
+                        <Circle className="w-5 h-5" />
                     </button>
                     <button
-                        className={`p-2 rounded-lg transition-all ${tool === "sticky"
-                            ? "bg-white text-blue-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                            }`}
+                        className={`p-2 rounded-xl transition-all ${tool === "sticky" ? "bg-blue-100 text-blue-600 shadow-inner" : "hover:bg-gray-100 text-gray-600"}`}
                         onClick={() => setTool("sticky")}
-                        title="메모 (포스트잇)"
+                        title="Sticky Note"
                     >
-                        <StickyNote size={20} />
+                        <StickyNote className="w-5 h-5" />
                     </button>
+                    <label className="p-2 rounded-xl hover:bg-gray-100 text-gray-600 cursor-pointer transition-all" title="Upload Image">
+                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                        <ImageIcon className="w-5 h-5" />
+                    </label>
                 </div>
 
-                <div className="w-px h-8 bg-gray-200" />
-
-                {/* Style Controls */}
-                <div className="flex items-center gap-3">
-                    <div className="relative group">
-                        <input
-                            type="color"
-                            value={color}
-                            onChange={(e) => setColor(e.target.value)}
-                            className="w-8 h-8 rounded-full cursor-pointer border-2 border-gray-200 p-0.5 overflow-hidden"
-                            title="색상 선택"
-                        />
-                    </div>
-                    <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 rounded-lg" title="선 두께">
-                        <Minus size={14} className="text-gray-500" />
-                        <input
-                            type="range"
-                            min="1"
-                            max="20"
-                            value={strokeWidth}
-                            onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
-                            className="w-20 cursor-pointer accent-blue-600"
-                        />
-                        <Plus size={14} className="text-gray-500" />
+                <div className="flex gap-1 items-center pl-2">
+                    <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => setColor(e.target.value)}
+                        className="w-8 h-8 rounded-lg cursor-pointer border-none bg-transparent"
+                        title="Color Picker"
+                    />
+                    <div className="flex items-center gap-1 mx-2">
+                        <button onClick={() => setLineWidth(Math.max(1, lineWidth - 1))} className="p-1 hover:bg-gray-100 rounded-lg">
+                            <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="text-xs font-medium w-4 text-center">{lineWidth}</span>
+                        <button onClick={() => setLineWidth(Math.min(50, lineWidth + 1))} className="p-1 hover:bg-gray-100 rounded-lg">
+                            <Plus className="w-3 h-3" />
+                        </button>
                     </div>
                 </div>
 
-                <div className="w-px h-8 bg-gray-200" />
-
-                {/* History Controls */}
-                <div className="flex gap-1">
-                    <button
-                        className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-                        onClick={handleUndo}
-                        disabled={historyStep === 0}
-                        title="실행 취소"
-                    >
-                        <Undo size={20} />
+                <div className="flex gap-1 border-l border-gray-300 pl-2">
+                    <button onClick={undo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="Undo">
+                        <Undo className="w-5 h-5" />
                     </button>
-                    <button
-                        className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-                        onClick={handleRedo}
-                        disabled={historyStep === history.length - 1}
-                        title="다시 실행"
-                    >
-                        <Redo size={20} />
+                    <button onClick={redo} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-all" title="Redo">
+                        <Redo className="w-5 h-5" />
                     </button>
                 </div>
             </div>
 
             <Stage
-                width={stageSize.width}
-                height={stageSize.height}
+                width={window.innerWidth}
+                height={window.innerHeight}
                 onMouseDown={handleMouseDown}
-                onMousemove={handleMouseMove}
-                onMouseup={handleMouseUp}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
                 onTouchStart={handleMouseDown}
                 onTouchMove={handleMouseMove}
                 onTouchEnd={handleMouseUp}
@@ -563,6 +647,19 @@ const Whiteboard = () => {
                                     />
                                 </Group>
                             );
+                        } else if (el.type === "image") {
+                            return (
+                                <Group
+                                    key={el.id}
+                                    id={el.id}
+                                    x={el.x}
+                                    y={el.y}
+                                    draggable={tool === "select"}
+                                    onDragEnd={(e) => handleDragEnd(e, el.id)}
+                                >
+                                    <URLImage image={el} />
+                                </Group>
+                            );
                         }
                         return null;
                     })}
@@ -575,15 +672,20 @@ const Whiteboard = () => {
                                 stroke="white"
                                 strokeWidth={2}
                                 rotation={-15}
+                                shadowColor="black"
+                                shadowBlur={2}
+                                shadowOpacity={0.2}
                             />
                             <Text
                                 x={15}
                                 y={15}
-                                text="User"
+                                text={cursor.nickname || `User ${cursor.id.substring(0, 4)}`}
                                 fontSize={12}
                                 fill={cursor.color}
                                 fontFamily="sans-serif"
                                 fontStyle="bold"
+                                shadowColor="white"
+                                shadowBlur={2}
                             />
                         </Group>
                     ))}
