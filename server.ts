@@ -22,6 +22,14 @@ app.prepare().then(() => {
             socket.broadcast.emit("draw", data);
         });
 
+        socket.on("delete", (id) => {
+            socket.broadcast.emit("delete", id);
+        });
+
+        socket.on("cursor-move", (data) => {
+            socket.broadcast.emit("cursor-move", data);
+        });
+
         socket.on("disconnect", () => {
             console.log("Client disconnected:", socket.id);
         });
